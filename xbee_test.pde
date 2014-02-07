@@ -5,12 +5,8 @@ import com.rapplogic.xbee.api.XBeeResponse;
 import com.rapplogic.xbee.api.zigbee.ZNetRxBaseResponse;
 import com.rapplogic.xbee.api.zigbee.ZNetRxIoSampleResponse;
 
-// remote xbee
-XBee xbee;
+// remote xbee address; integrate into class? yes!
 XBeeAddress64 address;
-RemoteAtRequest request;
-RemoteAtResponse response;
-XBeeResponse answer;
 
 // iteration counter draw loop
 int k = 0;
@@ -22,6 +18,7 @@ public class HYT
   private int daPin;
   private int delay;
   private int sampleRate;
+  private int readCounter;
   private String serialPort;
   private XBeeAddress64 address;
   private XBee xbee;
@@ -35,19 +32,20 @@ public class HYT
     this.address = address;
     this.clPin = clPin;
     this.daPin = daPin;
-    this.sampleRate = 100;
     this.delay = 180;
+    this.sampleRate = 100;
+    this.readCounter = 11;
     this.serialPort = "/dev/ttyUSB0";
     xbee = new XBee();
     try { xbee.open(serialPort, 9600); }
-    catch (Exception e) { println("Error connecting to remote XBEE"); }
+    catch (Exception e) { println("Error connecting to local XBEE, check Serial Port"); }
   }
  
-  // sleeps the whole thread for this.delay seconds 
+  // sleeps the whole thread for this.delay mseconds 
   private void delay()
   {
     try { Thread.sleep(delay); }
-    catch(Exception e) { println("sleep error"); }
+    catch(Exception e) { println("Thread sleeping error"); }
   }
   
   // following functions send synchronous requests to turn on/off certain pins
@@ -86,30 +84,6 @@ public class HYT
     delay();
   }
 
-  // switches the data pin to input mode
-  private void swToInput()
-  {
-   	request = new RemoteAtRequest(address, "D" + daPin, new int[] {3});
-   	try { response = (RemoteAtResponse) xbee.sendSynchronous(request, 1000); }
-    catch (Exception e) { println("could not switch D" + daPin + " to input"); }
-   	/*request = new RemoteAtRequest(address, "D" + clPin, new int[] {3});
-   	try { response = (RemoteAtResponse) xbee.sendSynchronous(request, 1000); }
-   	catch (Exception e) { println("could not switch D" + clPin + " to input"); }*/
-  }
-  
-  private void readInput()
-  {
-    try { answer = xbee.getResponse(); }
-    catch (Exception e) { println("answer error"); }
-    println(answer.getApiId());
-    if (answer.getApiId() == ApiId.ZNET_IO_SAMPLE_RESPONSE) {
-      ZNetRxIoSampleResponse ioSample = (ZNetRxIoSampleResponse) answer;    
-      // println("Received a sample from " + ioSample.getRemoteAddress64());
-      println("Digital D0 is " + (ioSample.isD0On() ? "on" : "off"));
-    }
-
-  }
-
   private void sendCmd(int cmd)
   {
     boolean lastBit = true;
@@ -134,12 +108,43 @@ public class HYT
       clLow();
       cmd <<= 1;
     }
+	
+    // now, instantly read the data and acknowledge the ACK bit by pulsing SCL
+    // therefore, call this.swToInput();
+  }
 
-    if(!currentBit)
-      daHigh();
+  // switches the data pin to input mode
+  private void swToInput()
+  {
+   	request = new RemoteAtRequest(address, "D" + daPin, new int[] {3});
+   	try { response = (RemoteAtResponse) xbee.sendSynchronous(request, 100); }
+    catch (Exception e) { println("could not switch D" + daPin + " to input"); }
+   	/*request = new RemoteAtRequest(address, "D" + clPin, new int[] {3});
+   	try { response = (RemoteAtResponse) xbee.sendSynchronous(request, 1000); }
+   	catch (Exception e) { println("could not switch D" + clPin + " to input"); }*/
 
-    clHigh();
+    // pulse clock to aknowledge ACK bit (turn on to "read" it and turn off to say "ok"
+	  clHigh();
     clLow();
+  }
+  
+  // reads input from remote xbee; sometimes also still receives 0x97 (AT_RESPONSE) type
+  // of answers. -> should only return IO_SAMPLE_RESPONSE  
+  private void readInput()
+  {
+    for(int i = 0; i < readCounter; ++i)
+    {
+      try { answer = xbee.getResponse(); }
+      catch (Exception e) { println("answer error"); }
+      // println(answer.getApiId());
+      if (answer.getApiId() == ApiId.ZNET_IO_SAMPLE_RESPONSE) 
+      {
+        ZNetRxIoSampleResponse ioSample = (ZNetRxIoSampleResponse) answer;    
+        // println("Received a sample from " + ioSample.getRemoteAddress64());
+        println("Digital D0 is " + (ioSample.isD0On() ? "on" : "off"));
+      }
+      delay();
+    }
   }
 
   void start()
@@ -152,7 +157,6 @@ public class HYT
     clLow();
   }
 
-
   public void reset()
   {
     // pulse clock while data high to reset
@@ -164,35 +168,7 @@ public class HYT
     }
   }
 
-}
-
-// other functions
-void blinkD0()
-{
-  try { Thread.sleep(1000); }
-  catch (Exception e) { println("error"); }
-  request = new RemoteAtRequest(address, "D0", new int[] {5});
-  try { response = (RemoteAtResponse) xbee.sendSynchronous(request, 1000); }
-  catch (Exception e) { println("error request"); }
-  try { Thread.sleep(1000); }
-  catch (Exception e) { println("error sleep"); }
-  request = new RemoteAtRequest(address, "D0", new int[] {4});
-  try { response = (RemoteAtResponse) xbee.sendSynchronous(request, 1000); }
-  catch (Exception e) { println("error response"); }  
-}
-void enableD0()
-{
-  request = new RemoteAtRequest(address, "D0", new int[] {5});
-  try { response = (RemoteAtResponse) xbee.sendSynchronous(request, 1000); }
-  catch (Exception e) { println("error request"); }
-}
-
-void disableD0()
-{
-  request = new RemoteAtRequest(address, "D0", new int[] {4});
-  try { response = (RemoteAtResponse) xbee.sendSynchronous(request, 1000); }
-  catch (Exception e) { println("error response"); }  
-}
+} // end HYT class
 
 void sleep(int msec)
 {
@@ -200,63 +176,25 @@ void sleep(int msec)
   catch (Exception e) { println("error sleeping the thread"); }
 }
 
-HYT hyt;
-float x = 0;
-float y = 0;
-float w = 150;
-float h = 80;
+// "main" program begins
+//
 
+HYT hyt;
 // setup function, runs once on startup of the program
 // useful to initialise values / classes
 void setup()
 {
-  size(200,200);
-  background(255);
-  stroke(0);
-  noFill();
-  /*xbee = new XBee();
-  try {
-  xbee.open("/dev/ttyUSB0", 9600);}
-  catch (Exception e) {
-    println("error connection");} */
   address = new XBeeAddress64(0, 0x13, 0xa2, 0x00, 0x40, 0xaa, 0x1a, 0x41);
-  /*request = new RemoteAtRequest(address, "D1", new int[] {0x3});
-  try { xbee.sendSynchronous(request, 10000); }
-  catch (Exception e) { println("D1 input AT error"); }
-  request = new RemoteAtRequest(address, "IC", new int[] {0x64});
-  try { xbee.sendSynchronous(request, 10000); }
-  catch (Exception e) { println("D1 input AT error"); }*/
+  // new HYT object (addres, clockPin, dataPin)
   hyt = new HYT(address, 1, 0);
 }
 
-  
 // draw loop: loops infinitifly
+// special to processing programming environment
 void draw()
 {
   k++;
 
-  background(255);
-  rect(x,y,w,h);
-  fill(128);
-  if(mousePressed){
-    if(mouseX>x && mouseX <x+w && mouseY>y && mouseY <y+h){
-      fill(0);
-      exit();
-    }
-  }
-                     
-  /*try { answer = xbee.getResponse(); }
-  catch (Exception e) { println("answer error"); }
-  println(answer.getApiId());
-  if (answer.getApiId() == ApiId.ZNET_IO_SAMPLE_RESPONSE) {
-    ZNetRxIoSampleResponse ioSample = (ZNetRxIoSampleResponse) answer;    
-    println("Received a sample from " + ioSample.getRemoteAddress64());
-    println("Digital D1 (pin 11) is " + (ioSample.isD1On() ? "on" : "off"));
-    if(ioSample.isD1On())
-      enableD0();
-    else
-      disableD0();
-  }*/
   /*hyt.delay();
   hyt.daHigh();
   hyt.delay();
